@@ -33,7 +33,7 @@ def index():
 def home():
     return render_template('home.html')
 
-@app.route('/About')
+@app.route('/about')
 def about():
     return render_template('about.html')
 
@@ -92,11 +92,6 @@ def sent():
 @app.route('/fail')
 def fail():
     return render_template('fail.html')
-
-# Health check route for Render
-@app.route('/health')
-def health_check():
-    return {'status': 'healthy'}, 200
 
 if __name__ == '__main__':
     # Get port from environment variable or default to 5000
