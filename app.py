@@ -3,8 +3,9 @@ from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file (only in development)
+if os.path.exists('.env'):
+    load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -12,11 +13,11 @@ app = Flask(__name__)
 # Configure the app with environment variables
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or 'your-fallback-secret-key'
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 465
+app.config['MAIL_PORT'] = 587  # Changed to 587 for TLS
 app.config['MAIL_USERNAME'] = os.getenv('EMAIL_USER')
-app.config['MAIL_PASSWORD'] = os.getenv('PASSWORD')
-app.config['MAIL_USE_TLS'] = False
-app.config['MAIL_USE_SSL'] = True
+app.config['MAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD')  # Changed from PASSWORD
+app.config['MAIL_USE_TLS'] = True  # Changed to True
+app.config['MAIL_USE_SSL'] = False  # Changed to False
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('EMAIL_USER')
 
 # Initialize Mail
@@ -77,6 +78,7 @@ You can reply directly to this email to respond to {email}.
             mail.send(msg)
             return redirect(url_for('sent'))
         except Exception as e:
+            # Log error in production
             print(f"Error sending email: {e}")
             return redirect(url_for('fail'))
     
@@ -91,5 +93,13 @@ def sent():
 def fail():
     return render_template('fail.html')
 
+# Health check route for Render
+@app.route('/health')
+def health_check():
+    return {'status': 'healthy'}, 200
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Get port from environment variable or default to 5000
+    port = int(os.environ.get('PORT', 5000))
+    # Run the app
+    app.run(host='0.0.0.0', port=port, debug=False)
