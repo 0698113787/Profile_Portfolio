@@ -2,6 +2,7 @@ from flask import Flask, url_for, render_template, request, redirect, session
 from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
+from threading import Thread
 
 # Load environment variables from .env file (only in development)
 if os.path.exists('.env'):
@@ -13,15 +14,25 @@ app = Flask(__name__)
 # Configure the app with environment variables
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or 'your-fallback-secret-key'
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 587  # Changed to 587 for TLS
+app.config['MAIL_PORT'] = 587
 app.config['MAIL_USERNAME'] = os.getenv('EMAIL_USER')
-app.config['MAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD')  # Changed from PASSWORD
-app.config['MAIL_USE_TLS'] = True  # Changed to True
-app.config['MAIL_USE_SSL'] = False  # Changed to False
+app.config['MAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD')
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USE_SSL'] = False
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('EMAIL_USER')
 
 # Initialize Mail
 mail = Mail(app)
+
+# Async email sending function
+def send_async_email(app, msg):
+    """Send email in background thread"""
+    with app.app_context():
+        try:
+            mail.send(msg)
+            print("Email sent successfully!")
+        except Exception as e:
+            print(f"Error sending email: {e}")
 
 # Define routes for the application
 
@@ -53,12 +64,12 @@ def feedback():
         message = request.form['message']
         subject = request.form['subject']
 
-        # Create a Message object and send the email
+        # Create a Message object
         msg = Message(
             subject=f"{subject} - From {name} ({email})",
-            sender=os.getenv('EMAIL_USER'),  # Your authenticated email as sender
-            recipients=[os.getenv('EMAIL_USER')],  # Your email as recipient
-            reply_to=email  # User's email for replies
+            sender=os.getenv('EMAIL_USER'),
+            recipients=[os.getenv('EMAIL_USER')],
+            reply_to=email
         )
         msg.body = f"""
 Contact Form Submission:
@@ -74,13 +85,11 @@ Message:
 You can reply directly to this email to respond to {email}.
         """
         
-        try:
-            mail.send(msg)
-            return redirect(url_for('sent'))
-        except Exception as e:
-            # Log error in production
-            print(f"Error sending email: {e}")
-            return redirect(url_for('fail'))
+        # Send email asynchronously in background thread
+        Thread(target=send_async_email, args=(app, msg)).start()
+        
+        # Redirect immediately without waiting for email to send
+        return redirect(url_for('sent'))
     
     # If the request method is GET, render the feedback template
     return render_template('feedback.html')
