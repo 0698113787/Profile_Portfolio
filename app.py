@@ -26,7 +26,6 @@ mail = Mail(app)
 
 # Async email sending function
 def send_async_email(app, msg):
-    """Send email in background thread"""
     with app.app_context():
         try:
             mail.send(msg)
