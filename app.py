@@ -2,6 +2,8 @@ from flask import Flask, url_for, render_template, request, redirect, session, f
 from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
+import signal
+from contextlib import contextmanager
 
 # Load environment variables from .env file (only in development)
 if os.path.exists('.env'):
@@ -20,8 +22,33 @@ app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USE_SSL'] = False
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('EMAIL_USER')
 
+# Increase mail timeout
+app.config['MAIL_SUPPRESS_SEND'] = False
+app.config['MAIL_ASCII_ATTACHMENTS'] = False
+
 # Initialize Mail
 mail = Mail(app)
+
+# Timeout handler for email sending
+class TimeoutException(Exception):
+    pass
+
+@contextmanager
+def time_limit(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutException("Email sending timed out")
+    
+    # Only use signal on Unix systems (not Windows)
+    if hasattr(signal, 'SIGALRM'):
+        signal.signal(signal.SIGALRM, signal_handler)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+    else:
+        # On Windows or systems without SIGALRM, just proceed normally
+        yield
 
 # Define routes for the application
 
@@ -49,14 +76,23 @@ def testimonials():
 def feedback():
     if request.method == 'POST':
         try:
-            name = request.form['name']
-            email = request.form['email']
-            message = request.form['message']
-            subject = request.form['subject']
+            name = request.form.get('name', '')
+            email = request.form.get('email', '')
+            message = request.form.get('message', '')
+            subject = request.form.get('subject', '')
+
+            # Validate inputs
+            if not all([name, email, message, subject]):
+                print("❌ Missing form fields")
+                return redirect(url_for('fail'))
+
+            print(f"📧 Attempting to send email from {email}")
+            print(f"📧 EMAIL_USER configured: {bool(os.getenv('EMAIL_USER'))}")
+            print(f"📧 EMAIL_PASSWORD configured: {bool(os.getenv('EMAIL_PASSWORD'))}")
 
             # Create a Message object
             msg = Message(
-                subject=f"{subject} - From {name} ({email})",
+                subject=f"{subject} - From {name}",
                 sender=os.getenv('EMAIL_USER'),
                 recipients=[os.getenv('EMAIL_USER')],
                 reply_to=email
@@ -72,25 +108,31 @@ Message:
 {message}
 
 ---
-You can reply directly to this email to respond to {email}.
+Reply to: {email}
             """
             
-            # Send email synchronously - WAIT for it to complete
-            mail.send(msg)
-            
-            # Log success
-            print(f"✅ Email sent successfully from {email}")
-            
-            # Only redirect after successful send
-            return redirect(url_for('sent'))
+            # Try to send email with timeout
+            try:
+                with time_limit(60):  # 60 second timeout for email
+                    mail.send(msg)
+                    print(f"✅ Email sent successfully from {email}")
+                    return redirect(url_for('sent'))
+            except TimeoutException:
+                print("❌ Email sending timed out after 60 seconds")
+                return redirect(url_for('fail'))
             
         except Exception as e:
-            # Log the actual error
-            print(f"❌ ERROR sending email: {str(e)}")
-            print(f"EMAIL_USER: {os.getenv('EMAIL_USER')}")
-            print(f"EMAIL_PASSWORD exists: {bool(os.getenv('EMAIL_PASSWORD'))}")
+            # Log the actual error with details
+            error_msg = str(e)
+            print(f"❌ ERROR sending email: {error_msg}")
+            print(f"❌ Error type: {type(e).__name__}")
             
-            # Redirect to fail page
+            # Check configuration
+            if not os.getenv('EMAIL_USER'):
+                print("❌ EMAIL_USER not set!")
+            if not os.getenv('EMAIL_PASSWORD'):
+                print("❌ EMAIL_PASSWORD not set!")
+            
             return redirect(url_for('fail'))
     
     # If the request method is GET, render the feedback template
@@ -107,7 +149,12 @@ def fail():
 # Health check endpoint for monitoring
 @app.route('/health')
 def health():
-    return {'status': 'healthy', 'email_configured': bool(os.getenv('EMAIL_USER'))}, 200
+    email_configured = bool(os.getenv('EMAIL_USER') and os.getenv('EMAIL_PASSWORD'))
+    return {
+        'status': 'healthy',
+        'email_configured': email_configured,
+        'email_user': os.getenv('EMAIL_USER', 'not_set')
+    }, 200
 
 if __name__ == '__main__':
     # Get port from environment variable or default to 5000
