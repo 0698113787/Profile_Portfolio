@@ -2,8 +2,6 @@ from flask import Flask, url_for, render_template, request, redirect, session, f
 from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
-import signal
-from contextlib import contextmanager
 
 # Load environment variables from .env file (only in development)
 if os.path.exists('.env'):
@@ -14,8 +12,8 @@ app = Flask(__name__)
 
 # Configure the app with environment variables
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or 'your-fallback-secret-key'
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 587
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
 app.config['MAIL_USERNAME'] = os.getenv('EMAIL_USER')
 app.config['MAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD')
 app.config['MAIL_USE_TLS'] = True
@@ -28,27 +26,6 @@ app.config['MAIL_ASCII_ATTACHMENTS'] = False
 
 # Initialize Mail
 mail = Mail(app)
-
-# Timeout handler for email sending
-class TimeoutException(Exception):
-    pass
-
-@contextmanager
-def time_limit(seconds):
-    def signal_handler(signum, frame):
-        raise TimeoutException("Email sending timed out")
-    
-    # Only use signal on Unix systems (not Windows)
-    if hasattr(signal, 'SIGALRM'):
-        signal.signal(signal.SIGALRM, signal_handler)
-        signal.alarm(seconds)
-        try:
-            yield
-        finally:
-            signal.alarm(0)
-    else:
-        # On Windows or systems without SIGALRM, just proceed normally
-        yield
 
 # Define routes for the application
 
@@ -111,15 +88,10 @@ Message:
 Reply to: {email}
             """
             
-            # Try to send email with timeout
-            try:
-                with time_limit(60):  # 60 second timeout for email
-                    mail.send(msg)
-                    print(f"✅ Email sent successfully from {email}")
-                    return redirect(url_for('sent'))
-            except TimeoutException:
-                print("❌ Email sending timed out after 60 seconds")
-                return redirect(url_for('fail'))
+            # Send email directly - let gunicorn timeout handle it
+            mail.send(msg)
+            print(f"✅ Email sent successfully from {email}")
+            return redirect(url_for('sent'))
             
         except Exception as e:
             # Log the actual error with details
