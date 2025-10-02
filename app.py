@@ -12,23 +12,15 @@ app = Flask(__name__)
 
 # Configure the app with environment variables
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or 'your-fallback-secret-key'
-app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp-relay.brevo.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
 app.config['MAIL_USERNAME'] = os.getenv('EMAIL_USER')
 app.config['MAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD')
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USE_SSL'] = False
+app.config['MAIL_DEFAULT_SENDER'] = 'vuyiswaandile176@gmail.com'
 
-# FIXED: Proper SSL/TLS configuration
-mail_port = int(os.getenv('MAIL_PORT', 587))
-if mail_port == 465:
-    app.config['MAIL_USE_SSL'] = True
-    app.config['MAIL_USE_TLS'] = False
-else:
-    app.config['MAIL_USE_TLS'] = True
-    app.config['MAIL_USE_SSL'] = False
-
-app.config['MAIL_DEFAULT_SENDER'] = os.getenv('EMAIL_USER')
-
-# ADDED: Connection timeout settings
+# Additional mail settings
 app.config['MAIL_MAX_EMAILS'] = None
 app.config['MAIL_SUPPRESS_SEND'] = False
 app.config['MAIL_ASCII_ATTACHMENTS'] = False
@@ -70,25 +62,21 @@ def feedback():
             # Validate inputs
             if not all([name, email, message, subject]):
                 print("❌ Missing form fields")
-                flash("Please fill in all fields", "error")
                 return redirect(url_for('fail'))
 
             print(f"📧 Attempting to send email from {email}")
             print(f"📧 EMAIL_USER: {os.getenv('EMAIL_USER')}")
             print(f"📧 MAIL_SERVER: {app.config['MAIL_SERVER']}")
             print(f"📧 MAIL_PORT: {app.config['MAIL_PORT']}")
-            print(f"📧 MAIL_USE_TLS: {app.config.get('MAIL_USE_TLS')}")
-            print(f"📧 MAIL_USE_SSL: {app.config.get('MAIL_USE_SSL')}")
 
-            # FIXED: Better error handling and connection test
-            with mail.connect() as conn:
-                msg = Message(
-                    subject=f"{subject} - From {name}",
-                    sender=app.config['MAIL_USERNAME'],
-                    recipients=[app.config['MAIL_USERNAME']],
-                    reply_to=email
-                )
-                msg.body = f"""
+            # Create and send email
+            msg = Message(
+                subject=f"{subject} - From {name}",
+                sender='vuyiswaandile176@gmail.com',
+                recipients=['vuyiswaandile176@gmail.com'],
+                reply_to=email
+            )
+            msg.body = f"""
 Contact Form Submission:
 
 Name: {name}
@@ -100,15 +88,14 @@ Message:
 
 ---
 Reply to: {email}
-                """
-                
-                conn.send(msg)
-                print(f"✅ Email sent successfully from {email}")
+            """
             
+            mail.send(msg)
+            print(f"✅ Email sent successfully from {email}")
             return redirect(url_for('sent'))
             
         except Exception as e:
-            # IMPROVED: More detailed error logging
+            # Detailed error logging
             import traceback
             error_msg = str(e)
             print(f"❌ ERROR sending email: {error_msg}")
@@ -120,15 +107,6 @@ Reply to: {email}
                 print("❌ EMAIL_USER not set!")
             if not os.getenv('EMAIL_PASSWORD'):
                 print("❌ EMAIL_PASSWORD not set!")
-            
-            # Check for common errors
-            if "authentication failed" in error_msg.lower():
-                print("❌ SMTP Authentication Failed - Check your EMAIL_PASSWORD")
-                print("❌ For Gmail, you need an App Password, not your regular password")
-            elif "timed out" in error_msg.lower():
-                print("❌ Connection timed out - Check MAIL_SERVER and MAIL_PORT")
-            elif "name or service not known" in error_msg.lower():
-                print("❌ Cannot resolve MAIL_SERVER - Check your MAIL_SERVER setting")
             
             return redirect(url_for('fail'))
     
@@ -143,47 +121,40 @@ def sent():
 def fail():
     return render_template('fail.html')
 
-# ADDED: Better health check endpoint
+# Health check endpoint
 @app.route('/health')
 def health():
     email_configured = bool(os.getenv('EMAIL_USER') and os.getenv('EMAIL_PASSWORD'))
-    
-    # Test email configuration
-    test_result = "not_tested"
-    if email_configured:
-        try:
-            with mail.connect() as conn:
-                test_result = "connection_success"
-        except Exception as e:
-            test_result = f"connection_failed: {str(e)[:100]}"
     
     return {
         'status': 'healthy',
         'email_configured': email_configured,
         'email_user': os.getenv('EMAIL_USER', 'not_set'),
         'mail_server': app.config['MAIL_SERVER'],
-        'mail_port': app.config['MAIL_PORT'],
-        'mail_use_tls': app.config.get('MAIL_USE_TLS'),
-        'mail_use_ssl': app.config.get('MAIL_USE_SSL'),
-        'smtp_test': test_result
+        'mail_port': app.config['MAIL_PORT']
     }, 200
 
-# ADDED: Test email endpoint for debugging
+# Test email endpoint for debugging
 @app.route('/test-email')
 def test_email():
     """Test endpoint to check email configuration"""
     try:
         msg = Message(
             subject="Test Email from Render",
-            sender=app.config['MAIL_USERNAME'],
-            recipients=[app.config['MAIL_USERNAME']]
+            sender='vuyiswaandile176@gmail.com',
+            recipients=['vuyiswaandile176@gmail.com']
         )
-        msg.body = "This is a test email to verify SMTP configuration."
+        msg.body = "This is a test email to verify SMTP configuration with Brevo."
         
         mail.send(msg)
         return {"status": "success", "message": "Test email sent!"}, 200
     except Exception as e:
-        return {"status": "error", "message": str(e)}, 500
+        import traceback
+        return {
+            "status": "error", 
+            "message": str(e),
+            "traceback": traceback.format_exc()
+        }, 500
 
 if __name__ == '__main__':
     # Get port from environment variable or default to 5000
